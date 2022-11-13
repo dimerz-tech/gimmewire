@@ -1,61 +1,33 @@
+use crate::mongo::Mongo;
 use configparser::ini::Ini;
-use mongodb::{
-    bson::{doc, DateTime},
-    options::ClientOptions,
-};
+use mongodb::bson::{doc, DateTime};
 use serde::{Deserialize, Serialize};
 use simple_error::{SimpleError, SimpleResult};
 use std::io::Write;
 use std::process::{Command, Stdio};
-
-use crate::bot;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Peer {
     pub id: u64,
     pub username: String,
-    pub public_key: String,
-    pub private_key: String,
+    pub public_key: Option<String>,
+    pub private_key: Option<String>,
     pub date: DateTime,
 }
 
-pub async fn add_peer(client: bot::Client) -> SimpleResult<Peer> {
+pub async fn add_peer(peer: &mut Peer, mongo: Mongo) {
     let (private_key, public_key) = gen_keys();
-    let username = client.username;
-    let options = match ClientOptions::parse("mongodb://localhost:27017").await {
-        Ok(options) => options,
-        Err(why) => {
-            println!("Cannot connect to database");
-            return Err(SimpleError::from(why));
-        }
-    };
-    let client = mongodb::Client::with_options(options).expect("Cannot create mongo client");
-    let peers = client.database("gimmewire").collection::<Peer>("peers");
-    let count = match peers.count_documents(None, None).await {
-        Ok(count) => count + 1,
-        Err(why) => {
-            println!("Cannot count documents");
-            return Err(SimpleError::from(why));
-        }
-    };
-    let peer = Peer {
-        id: count,
-        username: username,
-        public_key: public_key,
-        private_key: private_key,
-        date: DateTime::now(),
-    };
-    match peers.insert_one(&peer, None).await {
-        Ok(_) => return Ok(peer),
-        Err(why) => {
-            println!("Cannot insert peer to db");
-            return Err(SimpleError::from(why));
-        }
-    }
+    peer.private_key = Some(private_key);
+    peer.public_key = Some(public_key);
+    mongo.update(peer).await;
 }
 
 pub fn gen_conf(peer: &Peer) -> SimpleResult<String> {
     let mut config = Ini::new_cs();
-    config.set("Interface", "PrivateKey", Some(peer.private_key.clone()));
+    config.set(
+        "Interface",
+        "PrivateKey",
+        Some(peer.private_key.clone().unwrap()),
+    );
     config.set("Interface", "Address", get_free_ip(peer.id));
     config.set("Interface", "DNS", Some("8.8.8.8".to_string()));
     config.set(
@@ -142,4 +114,12 @@ pub fn gen_keys() -> (String, String) {
         private_key.trim().to_string(),
         public_key.trim().to_string(),
     )
+}
+
+#[cfg(test)]
+#[test]
+fn generate_keys() {
+    let (private, public) = gen_keys();
+    println!("{}", private.len());
+    assert!(private.len() == 44 && public.len() == 44);
 }
