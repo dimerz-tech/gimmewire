@@ -1,59 +1,79 @@
-use crate::wireguard;
-use simple_error::SimpleError;
+use crate::wireguard::Peer;
+use crate::{mongo::Mongo, wireguard};
+use mongodb::bson::DateTime;
+use std::error::Error;
 use teloxide::{prelude::*, types::InputFile, utils::command::BotCommands};
 
-pub struct Client {
-    pub username: String,
+#[derive(BotCommands, Clone)]
+#[command(
+    rename_rule = "lowercase",
+    description = "These commands are supported:"
+)]
+pub enum Command {
+    #[command(description = "Register, if you are new user.")]
+    Register,
+    #[command(description = "Get WireGuard config.")]
+    GetConfig,
+    #[command(description = "Users number")]
+    Count,
 }
 
-pub async fn run() {
-    let bot = Bot::from_env();
-
-    teloxide::commands_repl(bot, answer, Command::ty()).await;
-
-    #[derive(BotCommands, Clone)]
-    #[command(
-        rename_rule = "lowercase",
-        description = "These commands are supported:"
-    )]
-    enum Command {
-        #[command(description = "generate and get WireGuard config.")]
-        GetConfig,
-        #[command(description = "test")]
-        Test,
-    }
-
-    async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
-        match cmd {
-            Command::GetConfig => {
-                let client = Client {
-                    username: msg.chat.username().unwrap_or("user_unknown").to_string(),
-                };
-                let peer = match wireguard::add_peer(client).await {
-                    Err(_) => Err(SimpleError::new("Cannot send message back")),
-                    Ok(id) => Ok(id),
-                };
-                if let Ok(peer) = peer {
-                    if let Ok(config_path) = wireguard::gen_conf(&peer) {
-                        bot.send_document(msg.chat.id, InputFile::file(config_path))
-                            .await
-                            .unwrap();
-                    } else {
-                        bot.send_message(msg.chat.id, "Cannot create config")
-                            .await?;
-                    }
+pub async fn handle(
+    bot: Bot,
+    message: Message,
+    mongo: Mongo,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let text = match message.text() {
+        Some(text) => text,
+        None => {
+            return Ok(());
+        }
+    };
+    let mut response = String::new();
+    if let Ok(command) = Command::parse(text, "gimmewirebot") {
+        response = match command {
+            Command::Register => {
+                let username = message.chat.username().unwrap().to_string();
+                if mongo.find_by_name(&username).await.is_some() {
+                    "This account is already registered".to_string()
                 } else {
-                    bot.send_message(msg.chat.id, "Cannot create peer").await?;
+                    let id = mongo.count().await + 1;
+                    mongo
+                        .add(Peer {
+                            id: id,
+                            username: username,
+                            private_key: None,
+                            public_key: None,
+                            date: DateTime::now(),
+                        })
+                        .await;
+                    "Registered. Now you can get yor config file".to_string()
                 }
             }
-            Command::Test => {
-                bot.send_message(msg.chat.id, String::from("Ack"))
-                    .await
-                    .unwrap();
-                println!("{}", msg.chat.username().unwrap());
+            Command::Count => {
+                let count = mongo.count().await;
+                format!("Total: {}", count)
+            }
+            Command::GetConfig => {
+                let username = message.chat.username().unwrap().to_string();
+                if let Some(mut peer) = mongo.find_by_name(&username).await {
+                    wireguard::add_peer(&mut peer, mongo).await;
+                    if let Ok(config_path) = wireguard::gen_conf(&peer) {
+                        bot.send_document(message.chat.id, InputFile::file(config_path))
+                            .await
+                            .unwrap();
+                        "Open it with your WireGuard client app".to_string()
+                    } else {
+                        "Cannot create config".to_string()
+                    }
+                } else {
+                    "Register please".to_string()
+                }
             }
         };
+    };
 
-        Ok(())
-    }
+    bot.send_message(message.chat.id, response).await.unwrap();
+
+    Ok(())
 }
