@@ -1,5 +1,6 @@
-use crate::bot::{handle, Command};
+use crate::bot::{admin_handle, user_handle, AdminCommands, UserCommands};
 use crate::mongo::Mongo;
+use std::collections::HashMap;
 use teloxide::{prelude::*, utils::command::BotCommands};
 mod bot;
 mod mongo;
@@ -11,10 +12,23 @@ async fn main() {
     log::info!("Starting bot...");
     let mongo = Mongo::new().await;
     let bot = Bot::from_env();
-    bot.set_my_commands(Command::bot_commands()).await.unwrap();
-    let handler = dptree::entry().branch(Update::filter_message().endpoint(handle));
+    let chats: HashMap<UserId, ChatId> = HashMap::new();
+    bot.set_my_commands(UserCommands::bot_commands())
+        .await
+        .unwrap();
+    let handler = Update::filter_message()
+        .branch(
+            dptree::entry()
+                .filter_command::<UserCommands>()
+                .endpoint(user_handle),
+        )
+        .branch(
+            dptree::entry()
+                .filter_command::<AdminCommands>()
+                .endpoint(admin_handle),
+        );
     Dispatcher::builder(bot, handler)
-        .dependencies(dptree::deps![mongo])
+        .dependencies(dptree::deps![mongo, chats])
         .build()
         .dispatch()
         .await;

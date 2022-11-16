@@ -1,7 +1,7 @@
 use crate::wireguard::Peer;
 use crate::{mongo::Mongo, wireguard};
 use mongodb::bson::DateTime;
-use std::error::Error;
+use std::collections::HashMap;
 use teloxide::{prelude::*, types::InputFile, utils::command::BotCommands};
 
 #[derive(BotCommands, Clone)]
@@ -9,7 +9,7 @@ use teloxide::{prelude::*, types::InputFile, utils::command::BotCommands};
     rename_rule = "lowercase",
     description = "These commands are supported:"
 )]
-pub enum Command {
+pub enum UserCommands {
     #[command(description = "Register, if you are new user.")]
     Register,
     #[command(description = "Get WireGuard config.")]
@@ -17,12 +17,41 @@ pub enum Command {
     #[command(description = "Users number")]
     Count,
 }
+#[derive(BotCommands, Clone)]
+#[command(
+    rename_rule = "lowercase",
+    description = "These commands are supported:"
+)]
+pub enum AdminCommands {
+    #[command(description = "Approve new user.")]
+    Approve,
+    #[command(description = "Reject new user.")]
+    Reject,
+}
 
-pub async fn handle(
+pub async fn admin_handle(
+    bot: Bot,
+    message: Message,
+    cmd: AdminCommands,
+    chats: HashMap<UserId, ChatId>,
+) -> Result<(), teloxide::RequestError> {
+    match cmd {
+        AdminCommands::Approve => println!(
+            "Registered from message{}, admin is {}",
+            message.text().unwrap(),
+            message.from().unwrap().id
+        ),
+        AdminCommands::Reject => println!("Rejected from message{}", message.text().unwrap()),
+    }
+    Ok(())
+}
+
+pub async fn user_handle(
     bot: Bot,
     message: Message,
     mongo: Mongo,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+    chats: HashMap<ChatId, String>,
+) -> Result<(), teloxide::RequestError> {
     let text = match message.text() {
         Some(text) => text,
         None => {
@@ -30,9 +59,9 @@ pub async fn handle(
         }
     };
     let mut response = String::new();
-    if let Ok(command) = Command::parse(text, "gimmewirebot") {
+    if let Ok(command) = UserCommands::parse(text, "gimmewirebot") {
         response = match command {
-            Command::Register => {
+            UserCommands::Register => {
                 let username = message.chat.username().unwrap().to_string();
                 if mongo.find_by_name(&username).await.is_some() {
                     "This account is already registered".to_string()
@@ -50,11 +79,11 @@ pub async fn handle(
                     "Registered. Now you can get yor config file".to_string()
                 }
             }
-            Command::Count => {
+            UserCommands::Count => {
                 let count = mongo.count().await;
                 format!("Total: {}", count)
             }
-            Command::GetConfig => {
+            UserCommands::GetConfig => {
                 let username = message.chat.username().unwrap().to_string();
                 if let Some(mut peer) = mongo.find_by_name(&username).await {
                     wireguard::add_peer(&mut peer, mongo).await;
