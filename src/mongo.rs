@@ -30,7 +30,7 @@ impl Mongo {
         peers
             .find_one_and_replace(
                 doc! {
-                    "id": peer.id as i64
+                    "id": peer.user_id as i64
                 },
                 peer,
                 None,
@@ -91,7 +91,7 @@ impl Mongo {
         peers
             .delete_one(
                 doc! {
-                    "id": peer.id as i64
+                    "id": peer.user_id as i64
                 },
                 None,
             )
@@ -113,7 +113,7 @@ impl Mongo {
 async fn add_peer() {
     let mongo = Mongo::new().await;
     let peer = Peer {
-        id: 256,
+        user_id: 256,
         username: "Name".to_string(),
         public_key: None,
         private_key: None,

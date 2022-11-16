@@ -7,7 +7,7 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Peer {
-    pub id: u64,
+    pub user_id: u64,
     pub username: String,
     pub public_key: Option<String>,
     pub private_key: Option<String>,
@@ -28,7 +28,7 @@ pub fn gen_conf(peer: &Peer) -> SimpleResult<String> {
         "PrivateKey",
         Some(peer.private_key.clone().unwrap()),
     );
-    config.set("Interface", "Address", get_free_ip(peer.id));
+    config.set("Interface", "Address", get_free_ip(peer.user_id));
     config.set("Interface", "DNS", Some("8.8.8.8".to_string()));
     config.set(
         "Peer",
