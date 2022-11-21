@@ -14,12 +14,12 @@ impl Mongo {
         }
     }
 
-    pub async fn add(&self, peer: Peer) {
+    pub async fn add(&self, peer: &Peer) {
         let peers = self
             .client
             .database("gimmewire")
             .collection::<Peer>("peers");
-        peers.insert_one(&peer, None).await.unwrap();
+        peers.insert_one(peer, None).await.unwrap();
     }
 
     pub async fn update(&self, peer: &Peer) {
@@ -47,7 +47,7 @@ impl Mongo {
         match peers
             .find_one(
                 doc! {
-                    "id": id as i64
+                    "user_id": id as i64
                 },
                 None,
             )
@@ -91,7 +91,7 @@ impl Mongo {
         peers
             .delete_one(
                 doc! {
-                    "id": peer.user_id as i64
+                    "user_id": peer.user_id as i64
                 },
                 None,
             )
@@ -119,11 +119,12 @@ async fn add_peer() {
         private_key: None,
         date: mongodb::bson::DateTime::now(),
     };
-    mongo.add(peer).await;
+    mongo.add(&peer).await;
     let peer = mongo.find_by_id(256).await;
     if let Some(peer) = peer {
         assert!(peer.username == "Name");
         mongo.delete(peer).await;
+        assert!(mongo.find_by_id(256).await.is_none())
     } else {
         assert!(false);
     }

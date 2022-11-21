@@ -4,6 +4,7 @@ use mongodb::bson::DateTime;
 use std::collections::HashMap;
 use std::sync::Arc;
 use teloxide::{prelude::*, types::InputFile, utils::command::BotCommands};
+use tokio::sync::Mutex;
 
 #[derive(BotCommands, Clone)]
 #[command(
@@ -35,7 +36,7 @@ pub async fn admin_handle(
     bot: Bot,
     message: Message,
     cmd: AdminCommands,
-    mut chats: Arc<HashMap<UserId, ChatId>>,
+    chats: Arc<Mutex<HashMap<UserId, ChatId>>>,
     mongo: Mongo,
 ) -> Result<(), teloxide::RequestError> {
     match cmd {
@@ -47,7 +48,7 @@ pub async fn admin_handle(
             println!("{:?}", args);
             let (user_id, username) = (UserId(args[0].parse().unwrap()), args[1].to_string());
             mongo
-                .add(Peer {
+                .add(&Peer {
                     user_id: user_id.0,
                     username: username,
                     private_key: None,
@@ -55,10 +56,12 @@ pub async fn admin_handle(
                     date: DateTime::now(),
                 })
                 .await;
-            let chts = &mut *Arc::make_mut(&mut chats);
-            bot.send_message(chts[&user_id], "Congrats! Generating config.....")
-                .await
-                .unwrap();
+            bot.send_message(
+                chats.lock().await[&user_id],
+                "Congrats! Generating config.....",
+            )
+            .await
+            .unwrap();
         }
         AdminCommands::Reject => println!("Rejected from message{}", message.text().unwrap()),
     }
@@ -70,7 +73,7 @@ pub async fn user_handle(
     message: Message,
     mongo: Mongo,
     cmd: UserCommands,
-    mut chats: Arc<HashMap<UserId, ChatId>>,
+    chats: Arc<Mutex<HashMap<UserId, ChatId>>>,
 ) -> Result<(), teloxide::RequestError> {
     let response = match cmd {
         UserCommands::Register => {
@@ -82,8 +85,7 @@ pub async fn user_handle(
                 let user_id = message.from().unwrap().id;
                 let username = message.chat.username().unwrap();
                 let msg = format!("{};{}", user_id, username);
-                let chts = &mut *Arc::make_mut(&mut chats);
-                chts.insert(user_id, chat_id);
+                chats.lock().await.insert(user_id, chat_id);
                 bot.send_message(ChatId(ADMIN_CHAT_ID), msg).await.unwrap();
                 "Request is sent to admin".to_string()
             }
@@ -95,7 +97,7 @@ pub async fn user_handle(
         UserCommands::GetConfig => {
             let username = message.chat.username().unwrap().to_string();
             if let Some(mut peer) = mongo.find_by_name(&username).await {
-                wireguard::add_peer(&mut peer, mongo).await;
+                wireguard::add_peer(&mut peer, &mongo).await;
                 if let Ok(config_path) = wireguard::gen_conf(&peer) {
                     bot.send_document(message.chat.id, InputFile::file(config_path))
                         .await

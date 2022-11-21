@@ -3,6 +3,7 @@ use crate::mongo::Mongo;
 use std::collections::HashMap;
 use std::sync::Arc;
 use teloxide::{prelude::*, utils::command::BotCommands};
+use tokio::sync::Mutex;
 mod bot;
 mod mongo;
 mod wireguard;
@@ -13,7 +14,7 @@ async fn main() {
     log::info!("Starting bot...");
     let mongo = Mongo::new().await;
     let bot = Bot::from_env();
-    let mut chats: Arc<HashMap<UserId, ChatId>> = Arc::new(HashMap::new());
+    let chats: Arc<Mutex<HashMap<UserId, ChatId>>> = Arc::new(Mutex::new(HashMap::new()));
     bot.set_my_commands(UserCommands::bot_commands())
         .await
         .unwrap();

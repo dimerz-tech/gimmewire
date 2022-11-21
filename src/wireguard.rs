@@ -14,7 +14,7 @@ pub struct Peer {
     pub date: DateTime,
 }
 
-pub async fn add_peer(peer: &mut Peer, mongo: Mongo) {
+pub async fn add_peer(peer: &mut Peer, mongo: &Mongo) {
     let (private_key, public_key) = gen_keys();
     peer.private_key = Some(private_key);
     peer.public_key = Some(public_key);
@@ -51,7 +51,7 @@ fn get_free_ip(n: u64) -> Option<String> {
     return Some(format!("10.0.0.2/{}", n + 3));
 }
 
-pub fn gen_keys() -> (String, String) {
+fn gen_keys() -> (String, String) {
     let genkey_process = match Command::new("/usr/bin/wg")
         .arg("genkey")
         .stdout(Stdio::piped())
