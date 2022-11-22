@@ -7,14 +7,14 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Peer {
-    pub id: u64,
+    pub user_id: u64,
     pub username: String,
     pub public_key: Option<String>,
     pub private_key: Option<String>,
     pub date: DateTime,
 }
 
-pub async fn add_peer(peer: &mut Peer, mongo: Mongo) {
+pub async fn add_peer(peer: &mut Peer, mongo: &Mongo) {
     let (private_key, public_key) = gen_keys();
     peer.private_key = Some(private_key);
     peer.public_key = Some(public_key);
@@ -28,7 +28,7 @@ pub fn gen_conf(peer: &Peer) -> SimpleResult<String> {
         "PrivateKey",
         Some(peer.private_key.clone().unwrap()),
     );
-    config.set("Interface", "Address", get_free_ip(peer.id));
+    config.set("Interface", "Address", get_free_ip(peer.user_id));
     config.set("Interface", "DNS", Some("8.8.8.8".to_string()));
     config.set(
         "Peer",
@@ -51,7 +51,7 @@ fn get_free_ip(n: u64) -> Option<String> {
     return Some(format!("10.0.0.2/{}", n + 3));
 }
 
-pub fn gen_keys() -> (String, String) {
+fn gen_keys() -> (String, String) {
     let genkey_process = match Command::new("/usr/bin/wg")
         .arg("genkey")
         .stdout(Stdio::piped())
