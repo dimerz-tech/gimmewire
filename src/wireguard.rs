@@ -3,7 +3,9 @@ use configparser::ini::Ini;
 use mongodb::bson::{doc, DateTime};
 use serde::{Deserialize, Serialize};
 use simple_error::{SimpleError, SimpleResult};
+use std::collections::HashSet;
 use std::io::Write;
+use std::net::Ipv4Addr;
 use std::process::{Command, Stdio};
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Peer {
@@ -11,6 +13,7 @@ pub struct Peer {
     pub username: String,
     pub public_key: Option<String>,
     pub private_key: Option<String>,
+    pub ip: Option<Ipv4Addr>,
     pub date: DateTime,
 }
 
@@ -18,6 +21,15 @@ pub async fn add_peer(peer: &mut Peer, mongo: &Mongo) {
     let (private_key, public_key) = gen_keys();
     peer.private_key = Some(private_key);
     peer.public_key = Some(public_key);
+    peer.ip = Some(get_ip(&mut mongo.get_peers().await));
+    // let genkey_process = match Command::new("/usr/bin/wg")
+    //     .arg("genkey")
+    //     .stdout(Stdio::piped())
+    //     .spawn()
+    // {
+    //     Err(why) => panic!("Could not run wg genkey: {}", why),
+    //     Ok(genkey_process) => genkey_process,
+    // };
     mongo.update(peer).await;
 }
 
@@ -28,7 +40,11 @@ pub fn gen_conf(peer: &Peer) -> SimpleResult<String> {
         "PrivateKey",
         Some(peer.private_key.clone().unwrap()),
     );
-    config.set("Interface", "Address", get_free_ip(peer.user_id));
+    config.set(
+        "Interface",
+        "Address",
+        Some(format!("{}/16", peer.ip.unwrap().to_string())),
+    );
     config.set("Interface", "DNS", Some("8.8.8.8".to_string()));
     config.set(
         "Peer",
@@ -47,8 +63,15 @@ pub fn gen_conf(peer: &Peer) -> SimpleResult<String> {
     }
 }
 
-fn get_free_ip(n: u64) -> Option<String> {
-    return Some(format!("10.0.0.2/{}", n + 3));
+fn get_ip(peers: &mut Vec<Peer>) -> Ipv4Addr {
+    let mut ip_set = HashSet::new();
+    for i in 0..255 {
+        for j in 2..255 {
+            ip_set.insert(Ipv4Addr::new(10, 0, i, j));
+        }
+    }
+    let peers_ip_set: HashSet<Ipv4Addr> = peers.into_iter().flat_map(|peer| peer.ip).collect();
+    ip_set.difference(&peers_ip_set).next().unwrap().to_owned()
 }
 
 fn gen_keys() -> (String, String) {
