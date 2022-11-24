@@ -1,4 +1,5 @@
 use crate::wireguard::Peer;
+use futures::stream::{StreamExt, TryStreamExt};
 use mongodb::{bson::doc, Client};
 #[derive(Clone)]
 pub struct Mongo {
@@ -30,7 +31,7 @@ impl Mongo {
         peers
             .find_one_and_replace(
                 doc! {
-                    "id": peer.user_id as i64
+                    "user_id": peer.user_id as i64
                 },
                 peer,
                 None,
@@ -106,6 +107,20 @@ impl Mongo {
             .collection::<Peer>("peers");
         peers.count_documents(None, None).await.unwrap()
     }
+
+    pub async fn get_peers(&self) -> Vec<Peer> {
+        let peers = self
+            .client
+            .database("gimmewire")
+            .collection::<Peer>("peers");
+        peers
+            .find(None, None)
+            .await
+            .unwrap()
+            .try_collect()
+            .await
+            .unwrap()
+    }
 }
 
 #[cfg(test)]
@@ -117,6 +132,7 @@ async fn add_peer() {
         username: "Name".to_string(),
         public_key: None,
         private_key: None,
+        ip: None,
         date: mongodb::bson::DateTime::now(),
     };
     mongo.add(&peer).await;

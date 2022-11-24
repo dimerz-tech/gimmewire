@@ -53,6 +53,7 @@ pub async fn admin_handle(
                     username: username,
                     private_key: None,
                     public_key: None,
+                    ip: None,
                     date: DateTime::now(),
                 })
                 .await;
