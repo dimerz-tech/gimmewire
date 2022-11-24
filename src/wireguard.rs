@@ -22,14 +22,21 @@ pub async fn add_peer(peer: &mut Peer, mongo: &Mongo) {
     peer.private_key = Some(private_key);
     peer.public_key = Some(public_key);
     peer.ip = Some(get_ip(&mut mongo.get_peers().await));
-    // let genkey_process = match Command::new("/usr/bin/wg")
-    //     .arg("genkey")
-    //     .stdout(Stdio::piped())
-    //     .spawn()
-    // {
-    //     Err(why) => panic!("Could not run wg genkey: {}", why),
-    //     Ok(genkey_process) => genkey_process,
-    // };
+    let mut wg = match Command::new("/usr/bin/wg")
+        .args([
+            "set",
+            "wg0",
+            "peer",
+            format!("{}", peer.public_key.clone().unwrap()).as_str(),
+            "allowed-ips",
+            format!("{}/32", peer.ip.unwrap()).as_str(),
+        ])
+        .spawn()
+    {
+        Err(why) => panic!("Cannot run wg: {}", why),
+        Ok(wg) => wg,
+    };
+    wg.wait().expect("Could not add peer to wg");
     mongo.update(peer).await;
 }
 

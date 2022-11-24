@@ -29,15 +29,15 @@ impl Mongo {
             .database("gimmewire")
             .collection::<Peer>("peers");
         peers
-            .find_one_and_replace(
+            .delete_one(
                 doc! {
                     "user_id": peer.user_id as i64
                 },
-                peer,
                 None,
             )
             .await
             .unwrap();
+        self.add(peer).await;
     }
 
     pub async fn find_by_id(&self, id: u64) -> Option<Peer> {
@@ -126,6 +126,8 @@ impl Mongo {
 #[cfg(test)]
 #[tokio::test]
 async fn add_peer() {
+    use std::net::Ipv4Addr;
+
     let mongo = Mongo::new().await;
     let peer = Peer {
         user_id: 256,
@@ -135,10 +137,21 @@ async fn add_peer() {
         ip: None,
         date: mongodb::bson::DateTime::now(),
     };
+    let peer2 = Peer {
+        user_id: 256,
+        username: "Name2".to_string(),
+        public_key: None,
+        private_key: None,
+        ip: Some(Ipv4Addr::new(234, 32, 32, 234)),
+        date: mongodb::bson::DateTime::now(),
+    };
     mongo.add(&peer).await;
+    mongo.update(&peer2).await;
+    let peers = mongo.get_peers().await;
+    assert!(peers.len() == 1);
     let peer = mongo.find_by_id(256).await;
     if let Some(peer) = peer {
-        assert!(peer.username == "Name");
+        assert!(peer.username == "Name2");
         mongo.delete(peer).await;
         assert!(mongo.find_by_id(256).await.is_none())
     } else {
