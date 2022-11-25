@@ -30,7 +30,6 @@ pub enum AdminCommands {
     #[command(description = "Reject new user.")]
     Reject,
 }
-const ADMIN_ID: u64 = 617358980;
 const ADMIN_CHAT_ID: i64 = 617358980;
 pub async fn admin_handle(
     bot: Bot,
@@ -39,6 +38,9 @@ pub async fn admin_handle(
     chats: Arc<Mutex<HashMap<UserId, ChatId>>>,
     mongo: Mongo,
 ) -> Result<(), teloxide::RequestError> {
+    if message.chat.id != ChatId(ADMIN_CHAT_ID) {
+        return Ok(());
+    }
     match cmd {
         AdminCommands::Approve => {
             let mut args_iter = message.text().unwrap().split(" ");
