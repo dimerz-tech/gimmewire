@@ -41,19 +41,19 @@ pub async fn admin_handle(
     if message.chat.id != ChatId(ADMIN_CHAT_ID) {
         return Ok(());
     }
+    let args: Vec<&str> = message.text().unwrap().split(" ").collect();
+    if args.len() != 3 {
+        bot.send_message(ChatId(ADMIN_CHAT_ID), "Wrong format")
+            .await
+            .unwrap();
+        return Ok(());
+    }
+    let (username, user_id) = (
+        args[1].to_string().strip_prefix("@").unwrap().to_string(),
+        UserId(args[2].parse().unwrap()),
+    );
     match cmd {
         AdminCommands::Approve => {
-            let args: Vec<&str> = message.text().unwrap().split(" ").collect();
-            if args.len() != 3 {
-                bot.send_message(ChatId(ADMIN_CHAT_ID), "Wrong format")
-                    .await
-                    .unwrap();
-                return Ok(());
-            }
-            let (username, user_id) = (
-                args[1].to_string().strip_prefix("@").unwrap().to_string(),
-                UserId(args[2].parse().unwrap()),
-            );
             mongo
                 .add(&Peer {
                     user_id: user_id.0,
@@ -71,7 +71,14 @@ pub async fn admin_handle(
             .await
             .unwrap();
         }
-        AdminCommands::Reject => println!("Rejected from message{}", message.text().unwrap()),
+        AdminCommands::Reject => {
+            bot.send_message(
+                chats.lock().await[&user_id],
+                "Sorry, admin's rejected your request",
+            )
+            .await
+            .unwrap();
+        }
     }
     Ok(())
 }
