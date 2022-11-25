@@ -43,12 +43,17 @@ pub async fn admin_handle(
     }
     match cmd {
         AdminCommands::Approve => {
-            let mut args_iter = message.text().unwrap().split(" ");
-            // TODO: Replace with advance
-            args_iter.next();
-            let args: Vec<&str> = args_iter.next().unwrap().split(";").collect();
-            println!("{:?}", args);
-            let (user_id, username) = (UserId(args[0].parse().unwrap()), args[1].to_string());
+            let args: Vec<&str> = message.text().unwrap().split(" ").collect();
+            if args.len() != 3 {
+                bot.send_message(ChatId(ADMIN_CHAT_ID), "Wrong format")
+                    .await
+                    .unwrap();
+                return Ok(());
+            }
+            let (username, user_id) = (
+                args[1].to_string().strip_prefix("@").unwrap().to_string(),
+                UserId(args[2].parse().unwrap()),
+            );
             mongo
                 .add(&Peer {
                     user_id: user_id.0,
@@ -87,7 +92,7 @@ pub async fn user_handle(
                 let chat_id = message.chat.id;
                 let user_id = message.from().unwrap().id;
                 let username = message.chat.username().unwrap();
-                let msg = format!("{};{}", user_id, username);
+                let msg = format!("@{} {}", username, user_id);
                 chats.lock().await.insert(user_id, chat_id);
                 bot.send_message(ChatId(ADMIN_CHAT_ID), msg).await.unwrap();
                 "Request is sent to admin".to_string()
