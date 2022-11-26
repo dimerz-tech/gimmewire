@@ -109,13 +109,16 @@ pub async fn user_handle(
 ) -> Result<(), teloxide::RequestError> {
     let response = match cmd {
         UserCommands::Register => {
-            let username = message.chat.username().unwrap().to_string();
-            if mongo.find_by_name(&username).await.is_some() {
+            let username = message.chat.username().unwrap_or("None");
+            if mongo
+                .find_by_id(message.from().unwrap().id.0)
+                .await
+                .is_some()
+            {
                 "This account is already registered".to_string()
             } else {
                 let chat_id = message.chat.id;
                 let user_id = message.from().unwrap().id;
-                let username = message.chat.username().unwrap();
                 let msg = format!("@{} {}", username, user_id);
                 chats.lock().await.insert(user_id, chat_id);
                 bot.send_message(ChatId(ADMIN_CHAT_ID), msg).await.unwrap();
