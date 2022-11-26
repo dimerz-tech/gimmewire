@@ -107,9 +107,9 @@ pub async fn user_handle(
     cmd: UserCommands,
     chats: Arc<Mutex<HashMap<UserId, ChatId>>>,
 ) -> Result<(), teloxide::RequestError> {
+    let username = message.chat.username().unwrap_or("None").to_string();
     let response = match cmd {
         UserCommands::Register => {
-            let username = message.chat.username().unwrap_or("None");
             if mongo
                 .find_by_id(message.from().unwrap().id.0)
                 .await
@@ -130,7 +130,6 @@ pub async fn user_handle(
             format!("Total: {}", count)
         }
         UserCommands::GetConfig => {
-            let username = message.chat.username().unwrap().to_string();
             if let Some(mut peer) = mongo.find_by_name(&username).await {
                 wireguard::add_peer(&mut peer, &mongo).await;
                 if let Ok(config_path) = wireguard::gen_conf(&peer) {
