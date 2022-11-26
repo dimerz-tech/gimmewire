@@ -29,6 +29,8 @@ pub enum AdminCommands {
     Approve,
     #[command(description = "Reject new user.")]
     Reject,
+    #[command(description = "Remove peer")]
+    Remove,
 }
 const ADMIN_CHAT_ID: i64 = 617358980;
 pub async fn admin_handle(
@@ -78,6 +80,21 @@ pub async fn admin_handle(
             )
             .await
             .unwrap();
+        }
+        AdminCommands::Remove => {
+            if let Some(peer) = mongo.find_by_id(user_id.0).await {
+                wireguard::remove_peer(&peer, &mongo).await;
+                bot.send_message(
+                    chats.lock().await[&user_id],
+                    "You've been removed from gimmewire",
+                )
+                .await
+                .unwrap();
+            } else {
+                bot.send_message(ChatId(ADMIN_CHAT_ID), "Cannot find peer")
+                    .await
+                    .unwrap();
+            }
         }
     }
     Ok(())

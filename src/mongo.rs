@@ -1,5 +1,5 @@
 use crate::wireguard::Peer;
-use futures::stream::{StreamExt, TryStreamExt};
+use futures::stream::TryStreamExt;
 use mongodb::{bson::doc, Client};
 #[derive(Clone)]
 pub struct Mongo {
@@ -84,7 +84,7 @@ impl Mongo {
         }
     }
 
-    pub async fn delete(&self, peer: Peer) {
+    pub async fn delete(&self, peer: &Peer) {
         let peers = self
             .client
             .database("gimmewire")
@@ -145,14 +145,15 @@ async fn add_peer() {
         ip: Some(Ipv4Addr::new(234, 32, 32, 234)),
         date: mongodb::bson::DateTime::now(),
     };
+    let count = mongo.count().await;
     mongo.add(&peer).await;
     mongo.update(&peer2).await;
     let peers = mongo.get_peers().await;
-    assert!(peers.len() == 1);
+    assert!(peers.len() as u64 == count + 1);
     let peer = mongo.find_by_id(256).await;
     if let Some(peer) = peer {
         assert!(peer.username == "Name2");
-        mongo.delete(peer).await;
+        mongo.delete(&peer).await;
         assert!(mongo.find_by_id(256).await.is_none())
     } else {
         assert!(false);

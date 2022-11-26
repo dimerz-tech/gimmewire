@@ -40,6 +40,24 @@ pub async fn add_peer(peer: &mut Peer, mongo: &Mongo) {
     mongo.update(peer).await;
 }
 
+pub async fn remove_peer(peer: &Peer, mongo: &Mongo) {
+    let mut wg = match Command::new("/usr/bin/wg")
+        .args([
+            "set",
+            "wg0",
+            "peer",
+            format!("{}", peer.public_key.clone().unwrap()).as_str(),
+            "remove",
+        ])
+        .spawn()
+    {
+        Err(why) => panic!("Cannot run wg: {}", why),
+        Ok(wg) => wg,
+    };
+    wg.wait().expect("Could not remove peer from wg");
+    mongo.delete(peer).await;
+}
+
 pub fn gen_conf(peer: &Peer) -> SimpleResult<String> {
     let mut config = Ini::new_cs();
     config.set(
@@ -60,7 +78,7 @@ pub fn gen_conf(peer: &Peer) -> SimpleResult<String> {
     );
     config.set("Peer", "Endpoint", Some("194.87.186.2:51820".to_string()));
     config.set("Peer", "AllowedIPs", Some("0.0.0.0/0".to_string()));
-    let config_path = format!("/home/amid/{}", peer.username);
+    let config_path = format!("/home/amid/wg/{}.conf", peer.username);
     match config.write(&config_path) {
         Err(why) => {
             log::error!("Cannot save a client config: {}", why);
