@@ -1,6 +1,7 @@
 use crate::wireguard::Peer;
 use crate::{mongo::Mongo, wireguard};
 use mongodb::bson::DateTime;
+use simple_error::SimpleError;
 use std::collections::HashMap;
 use std::sync::Arc;
 use teloxide::{prelude::*, types::InputFile, utils::command::BotCommands};
@@ -130,22 +131,113 @@ pub async fn user_handle(
             format!("Total: {}", count)
         }
         UserCommands::GetConfig => {
+            let mut response = String::new();
             if let Some(mut peer) = mongo.find_by_name(&username).await {
-                wireguard::add_peer(&mut peer, &mongo).await;
+                // Add peer to wireguard, if err => send message to user and to admin
+                match wireguard::add_peer(&mut peer, &mongo).await {
+                    Err(why) => {
+                        send_and_log_msg(
+                            &bot,
+                            &message,
+                            Some(format!("Cannot add peer {}", peer.username)),
+                            Some("Sorry cannot generate config".to_string()),
+                            Some(why),
+                        )
+                        .await;
+                        return Ok(());
+                    }
+                    Ok(_) => (),
+                };
+                // Update peer in db, if err => send message to user and to admin
+                match mongo.update(&peer).await {
+                    Err(why) => {
+                        wireguard::remove_peer(&peer, &mongo).await; // Something like dummy rollback
+                        send_and_log_msg(
+                            &bot,
+                            &message,
+                            Some(format!("Cannot update peer {}", peer.username)),
+                            Some("Sorry cannot generate config".to_string()),
+                            Some(why),
+                        )
+                        .await;
+                        return Ok(());
+                    }
+                    Ok(_) => (),
+                }
                 if let Ok(config_path) = wireguard::gen_conf(&peer) {
-                    bot.send_document(message.chat.id, InputFile::file(config_path))
+                    match bot
+                        .send_document(message.chat.id, InputFile::file(config_path))
                         .await
-                        .unwrap();
-                    "Open it with your WireGuard client app".to_string()
+                    {
+                        Err(why) => {
+                            send_and_log_msg(
+                                &bot,
+                                &message,
+                                Some(format!("Cannot send config to {}", peer.username)),
+                                Some("Sorry cannot send config".to_string()),
+                                Some(SimpleError::from(why)),
+                            )
+                            .await;
+                        }
+                        Ok(_) => (),
+                    }
+                    match bot
+                        .send_message(message.chat.id, "Open it with WireGuard")
+                        .await
+                    {
+                        Err(why) => {
+                            send_and_log_msg(
+                                &bot,
+                                &message,
+                                Some(format!("Cannot send success message to {}", peer.username)),
+                                None,
+                                Some(SimpleError::from(why)),
+                            )
+                            .await
+                        }
+                        Ok(_) => (),
+                    }
                 } else {
-                    "Cannot create config".to_string()
+                    send_and_log_msg(
+                        &bot,
+                        &message,
+                        Some(format!("Cannot create config for {}", peer.username)),
+                        Some("Sorry cannot generate config".to_string()),
+                        None,
+                    )
+                    .await;
                 }
             } else {
-                "Register please".to_string()
+                response = "Register please".to_string()
             }
+            response
         }
     };
     bot.send_message(message.chat.id, response).await.unwrap();
 
     Ok(())
+}
+
+async fn send_and_log_msg(
+    bot: &Bot,
+    message: &Message,
+    admin_msg: Option<String>,
+    user_msg: Option<String>,
+    err: Option<SimpleError>,
+) {
+    if let Some(msg) = user_msg {
+        match bot.send_message(message.chat.id, msg).await {
+            Err(why) => log::error!("{}", why),
+            Ok(_) => (),
+        }
+    }
+    if let Some(msg) = admin_msg {
+        match bot.send_message(ChatId(ADMIN_CHAT_ID), msg).await {
+            Err(why) => log::error!("{}", why),
+            Ok(_) => (),
+        }
+    }
+    if let Some(error) = err {
+        log::error!("{}", error);
+    }
 }

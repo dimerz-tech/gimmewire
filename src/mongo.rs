@@ -1,6 +1,7 @@
 use crate::wireguard::Peer;
 use futures::stream::TryStreamExt;
 use mongodb::{bson::doc, Client};
+use simple_error::{SimpleError, SimpleResult};
 #[derive(Clone)]
 pub struct Mongo {
     client: Client,
@@ -15,29 +16,38 @@ impl Mongo {
         }
     }
 
-    pub async fn add(&self, peer: &Peer) {
+    pub async fn add(&self, peer: &Peer) -> SimpleResult<()> {
         let peers = self
             .client
             .database("gimmewire")
             .collection::<Peer>("peers");
-        peers.insert_one(peer, None).await.unwrap();
+        match peers.insert_one(peer, None).await {
+            Err(why) => {
+                log::error!("Cannot add peer to db {}", why.to_string());
+                Err(SimpleError::from(why))
+            }
+            Ok(_) => Ok(()),
+        }
     }
 
-    pub async fn update(&self, peer: &Peer) {
+    pub async fn update(&self, peer: &Peer) -> SimpleResult<()> {
         let peers = self
             .client
             .database("gimmewire")
             .collection::<Peer>("peers");
-        peers
-            .delete_one(
-                doc! {
-                    "user_id": peer.user_id as i64
-                },
-                None,
-            )
-            .await
-            .unwrap();
-        self.add(peer).await;
+        match self.delete(&peer).await {
+            Err(why) => {
+                log::error!("Cannot update peer {}", why.to_string());
+                return Err(why);
+            }
+            Ok(_) => match self.add(&peer).await {
+                Err(why) => {
+                    log::error!("Cannot update peer {}", why.to_string());
+                    return Err(why);
+                }
+                Ok(_) => Ok(()),
+            },
+        }
     }
 
     pub async fn find_by_id(&self, id: u64) -> Option<Peer> {
@@ -84,12 +94,12 @@ impl Mongo {
         }
     }
 
-    pub async fn delete(&self, peer: &Peer) {
+    pub async fn delete(&self, peer: &Peer) -> SimpleResult<()> {
         let peers = self
             .client
             .database("gimmewire")
             .collection::<Peer>("peers");
-        peers
+        match peers
             .delete_one(
                 doc! {
                     "user_id": peer.user_id as i64
@@ -97,7 +107,13 @@ impl Mongo {
                 None,
             )
             .await
-            .unwrap();
+        {
+            Err(why) => {
+                log::error!("Cannot delete peer from db {}", why.to_string());
+                return Err(SimpleError::from(why));
+            }
+            Ok(_) => Ok(()),
+        }
     }
 
     pub async fn count(&self) -> u64 {
