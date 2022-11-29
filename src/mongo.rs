@@ -31,10 +31,6 @@ impl Mongo {
     }
 
     pub async fn update(&self, peer: &Peer) -> SimpleResult<()> {
-        let peers = self
-            .client
-            .database("gimmewire")
-            .collection::<Peer>("peers");
         match self.delete(&peer).await {
             Err(why) => {
                 log::error!("Cannot update peer {}", why.to_string());
@@ -59,28 +55,6 @@ impl Mongo {
             .find_one(
                 doc! {
                     "user_id": id as i64
-                },
-                None,
-            )
-            .await
-        {
-            Ok(result) => result,
-            Err(err) => {
-                println!("{}", err);
-                None
-            }
-        }
-    }
-
-    pub async fn find_by_name(&self, name: &String) -> Option<Peer> {
-        let peers = self
-            .client
-            .database("gimmewire")
-            .collection::<Peer>("peers");
-        match peers
-            .find_one(
-                doc! {
-                    "username": name
                 },
                 None,
             )
@@ -162,14 +136,14 @@ async fn add_peer() {
         date: mongodb::bson::DateTime::now(),
     };
     let count = mongo.count().await;
-    mongo.add(&peer).await;
-    mongo.update(&peer2).await;
+    mongo.add(&peer).await.unwrap();
+    mongo.update(&peer2).await.unwrap();
     let peers = mongo.get_peers().await;
     assert!(peers.len() as u64 == count + 1);
     let peer = mongo.find_by_id(256).await;
     if let Some(peer) = peer {
         assert!(peer.username == "Name2");
-        mongo.delete(&peer).await;
+        mongo.delete(&peer).await.unwrap();
         assert!(mongo.find_by_id(256).await.is_none())
     } else {
         assert!(false);

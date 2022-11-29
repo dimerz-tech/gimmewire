@@ -42,7 +42,7 @@ pub async fn add_peer(peer: &mut Peer, mongo: &Mongo) -> SimpleResult<()> {
     }
 }
 
-pub async fn remove_peer(peer: &Peer, mongo: &Mongo) {
+pub async fn remove_peer(peer: &Peer) {
     let mut wg = match Command::new("/usr/bin/wg")
         .args([
             "set",
