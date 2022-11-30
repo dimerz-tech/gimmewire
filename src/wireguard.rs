@@ -17,7 +17,7 @@ pub struct Peer {
     pub date: DateTime,
 }
 
-pub async fn add_peer(peer: &mut Peer, mongo: &Mongo) {
+pub async fn add_peer(peer: &mut Peer, mongo: &Mongo) -> SimpleResult<()> {
     let (private_key, public_key) = gen_keys();
     peer.private_key = Some(private_key);
     peer.public_key = Some(public_key);
@@ -33,14 +33,16 @@ pub async fn add_peer(peer: &mut Peer, mongo: &Mongo) {
         ])
         .spawn()
     {
-        Err(why) => panic!("Cannot run wg: {}", why),
+        Err(why) => return Err(SimpleError::from(why)),
         Ok(wg) => wg,
     };
-    wg.wait().expect("Could not add peer to wg");
-    mongo.update(peer).await;
+    match wg.wait() {
+        Err(why) => Err(SimpleError::from(why)),
+        Ok(_) => Ok(()),
+    }
 }
 
-pub async fn remove_peer(peer: &Peer, mongo: &Mongo) {
+pub async fn remove_peer(peer: &Peer) {
     let mut wg = match Command::new("/usr/bin/wg")
         .args([
             "set",
@@ -55,7 +57,6 @@ pub async fn remove_peer(peer: &Peer, mongo: &Mongo) {
         Ok(wg) => wg,
     };
     wg.wait().expect("Could not remove peer from wg");
-    mongo.delete(peer).await;
 }
 
 pub fn gen_conf(peer: &Peer) -> SimpleResult<String> {
