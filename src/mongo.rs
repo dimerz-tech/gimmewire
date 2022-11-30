@@ -89,6 +89,14 @@ impl Mongo {
             Ok(_) => Ok(()),
         }
     }
+    #[cfg(test)]
+    pub async fn count(&self) -> u64 {
+        let peers = self
+            .client
+            .database("gimmewire")
+            .collection::<Peer>("peers");
+        peers.count_documents(None, None).await.unwrap()
+    }
 
     pub async fn get_peers(&self) -> Vec<Peer> {
         let peers = self
@@ -107,13 +115,13 @@ impl Mongo {
 
 #[cfg(test)]
 #[tokio::test]
-async fn add_peer() {
+async fn test_db() {
     use std::net::Ipv4Addr;
 
     let mongo = Mongo::new().await;
-    let peer = Peer {
+    let peer1 = Peer {
         user_id: 256,
-        username: "Name".to_string(),
+        username: "User1".to_string(),
         public_key: None,
         private_key: None,
         ip: None,
@@ -121,20 +129,20 @@ async fn add_peer() {
     };
     let peer2 = Peer {
         user_id: 256,
-        username: "Name2".to_string(),
+        username: "User2".to_string(),
         public_key: None,
         private_key: None,
         ip: Some(Ipv4Addr::new(234, 32, 32, 234)),
         date: mongodb::bson::DateTime::now(),
     };
     let count = mongo.count().await;
-    mongo.add(&peer).await.unwrap();
+    mongo.add(&peer1).await.unwrap();
     mongo.update(&peer2).await.unwrap();
     let peers = mongo.get_peers().await;
     assert!(peers.len() as u64 == count + 1);
     let peer = mongo.find_by_id(256).await;
     if let Some(peer) = peer {
-        assert!(peer.username == "Name2");
+        assert!(peer.username == "User2");
         mongo.delete(&peer).await.unwrap();
         assert!(mongo.find_by_id(256).await.is_none())
     } else {
