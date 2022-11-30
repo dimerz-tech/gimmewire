@@ -90,14 +90,6 @@ impl Mongo {
         }
     }
 
-    pub async fn count(&self) -> u64 {
-        let peers = self
-            .client
-            .database("gimmewire")
-            .collection::<Peer>("peers");
-        peers.count_documents(None, None).await.unwrap()
-    }
-
     pub async fn get_peers(&self) -> Vec<Peer> {
         let peers = self
             .client
