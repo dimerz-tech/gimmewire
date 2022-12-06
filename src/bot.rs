@@ -13,10 +13,12 @@ use tokio::sync::Mutex;
     description = "These commands are supported:"
 )]
 pub enum UserCommands {
-    #[command(description = "Register, if you are new user.")]
+    #[command(description = "📝 Register, if you are new user.")]
     Register,
-    #[command(description = "Get WireGuard config.")]
+    #[command(description = "🚀 Get WireGuard config.")]
     GetConfig,
+    #[command(description = "📕 Help")]
+    Help,
 }
 #[derive(BotCommands, Clone)]
 #[command(
@@ -209,6 +211,18 @@ pub async fn user_handle(
             } else {
                 bot.send_message(message.chat.id, "Register first").await?;
             }
+        }
+        UserCommands::Help => {
+            bot.send_message(
+                message.chat.id,
+                "Hello!😉 Quick start:
+0. 📱 Install WireGuard client from App Store.
+1. 📝 Register
+2. 🚀 Get config
+3. 🔥 Open config with WireGuard client
+             ",
+            )
+            .await?;
         }
     };
 
