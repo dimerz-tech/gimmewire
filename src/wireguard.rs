@@ -79,6 +79,7 @@ pub fn gen_conf(peer: &Peer) -> SimpleResult<String> {
     );
     config.set("Peer", "Endpoint", Some("194.87.186.2:51820".to_string()));
     config.set("Peer", "AllowedIPs", Some("0.0.0.0/0".to_string()));
+    config.set("Peer", "PersistentKeepalive", Some(25.to_string()));
     let config_path = format!("/home/amid/wg/{}.conf", peer.username);
     match config.write(&config_path) {
         Err(why) => {
