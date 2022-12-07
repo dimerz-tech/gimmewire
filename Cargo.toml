@@ -17,3 +17,5 @@ configparser = "3.0.2"
 serde = "1.0.147"
 simple-error = "0.2.3"
 futures = "0.3.25"
+clap = {version = "4.0.29", features = ["derive"]}
+dirs = "4.0.0"

@@ -3,10 +3,12 @@ use configparser::ini::Ini;
 use mongodb::bson::{doc, DateTime};
 use serde::{Deserialize, Serialize};
 use simple_error::{SimpleError, SimpleResult};
-use std::collections::HashSet;
+use tokio::sync::Mutex;
+use std::collections::{HashSet};
 use std::io::Write;
 use std::net::Ipv4Addr;
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Peer {
     pub user_id: u64,
@@ -59,7 +61,7 @@ pub async fn remove_peer(peer: &Peer) {
     wg.wait().expect("Could not remove peer from wg");
 }
 
-pub fn gen_conf(peer: &Peer) -> SimpleResult<String> {
+pub fn gen_conf(peer: &Peer, conf: Arc<Mutex<Ini>>) -> SimpleResult<String> {
     let mut config = Ini::new_cs();
     config.set(
         "Interface",
@@ -69,18 +71,18 @@ pub fn gen_conf(peer: &Peer) -> SimpleResult<String> {
     config.set(
         "Interface",
         "Address",
-        Some(format!("{}/16", peer.ip.unwrap().to_string())),
+        Some(format!("{}/{}", peer.ip.unwrap().to_string(), conf.blocking_lock().get("Peer", "Subnet").unwrap_or(16.to_string()))),
     );
-    config.set("Interface", "DNS", Some("8.8.8.8".to_string()));
+    config.set("Interface", "DNS", Some(conf.blocking_lock().get("Peer", "DNS").unwrap_or("8.8.8.8".to_string())));
     config.set(
         "Peer",
         "PublicKey",
-        Some("kFpzem87OujfORpD9WkVD7vjjESONndZRcT32Dw0xWg=".to_string()),
+        config.get("Peer", "Key"),
     );
-    config.set("Peer", "Endpoint", Some("194.87.186.2:51820".to_string()));
+    config.set("Peer", "Endpoint", conf.blocking_lock().get("Peer", "Endpoint"));
     config.set("Peer", "AllowedIPs", Some("0.0.0.0/0".to_string()));
-    config.set("Peer", "PersistentKeepalive", Some(25.to_string()));
-    let config_path = format!("/home/amid/wg/{}.conf", peer.username);
+    config.set("Peer", "PersistentKeepalive", Some(conf.blocking_lock().get("Peer", "KeepAlive").unwrap_or(25.to_string())));
+    let config_path = format!("{}/{}.conf", dirs::home_dir().unwrap().to_string_lossy(), peer.username);
     match config.write(&config_path) {
         Err(why) => {
             log::error!("Cannot save a client config: {}", why);

@@ -4,13 +4,17 @@ use mongodb::{bson::doc, Client};
 use simple_error::{SimpleError, SimpleResult};
 #[derive(Clone)]
 pub struct Mongo {
+    name: String,
+    table: String,
     client: Client,
 }
 
 impl Mongo {
-    pub async fn new() -> Self {
+    pub async fn new(url: &str, name: String, table: String) -> Self {
         Mongo {
-            client: Client::with_uri_str("mongodb://localhost:27017")
+            name: name, 
+            table: table,
+            client: Client::with_uri_str(url)
                 .await
                 .unwrap(),
         }
@@ -19,8 +23,8 @@ impl Mongo {
     pub async fn add(&self, peer: &Peer) -> SimpleResult<()> {
         let peers = self
             .client
-            .database("gimmewire")
-            .collection::<Peer>("peers");
+            .database(&self.name)
+            .collection::<Peer>(&self.table);
         match peers.insert_one(peer, None).await {
             Err(why) => {
                 log::error!("Cannot add peer to db {}", why.to_string());
@@ -49,8 +53,8 @@ impl Mongo {
     pub async fn find_by_id(&self, id: u64) -> Option<Peer> {
         let peers = self
             .client
-            .database("gimmewire")
-            .collection::<Peer>("peers");
+            .database(&self.name)
+            .collection::<Peer>(&self.table);
         match peers
             .find_one(
                 doc! {
@@ -71,8 +75,8 @@ impl Mongo {
     pub async fn delete(&self, peer: &Peer) -> SimpleResult<()> {
         let peers = self
             .client
-            .database("gimmewire")
-            .collection::<Peer>("peers");
+            .database(&self.name)
+            .collection::<Peer>(&self.table);
         match peers
             .delete_one(
                 doc! {
@@ -93,16 +97,16 @@ impl Mongo {
     pub async fn count(&self) -> u64 {
         let peers = self
             .client
-            .database("gimmewire")
-            .collection::<Peer>("peers");
+            .database(&self.name)
+            .collection::<Peer>(&self.table);
         peers.count_documents(None, None).await.unwrap()
     }
 
     pub async fn get_peers(&self) -> Vec<Peer> {
         let peers = self
             .client
-            .database("gimmewire")
-            .collection::<Peer>("peers");
+            .database(&self.name)
+            .collection::<Peer>(&self.table);
         peers
             .find(None, None)
             .await
@@ -118,7 +122,7 @@ impl Mongo {
 async fn test_db() {
     use std::net::Ipv4Addr;
 
-    let mongo = Mongo::new().await;
+    let mongo = Mongo::new("mongodb://localhost:27017", "gimmewire".to_string(), "peers".to_string()).await;
     let peer1 = Peer {
         user_id: 256,
         username: "User1".to_string(),
