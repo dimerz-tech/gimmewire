@@ -1,5 +1,6 @@
 use crate::wireguard::Peer;
 use crate::{mongo::Mongo, wireguard};
+use configparser::ini::Ini;
 use mongodb::bson::DateTime;
 use simple_error::SimpleError;
 use std::collections::HashMap;
@@ -33,20 +34,26 @@ pub enum AdminCommands {
     #[command(description = "Remove peer")]
     Remove,
 }
-const ADMIN_CHAT_ID: i64 = 617358980;
 pub async fn admin_handle(
     bot: Bot,
     message: Message,
     cmd: AdminCommands,
     chats: Arc<Mutex<HashMap<UserId, ChatId>>>,
     mongo: Mongo,
+    config: Arc<Mutex<Ini>>,
 ) -> Result<(), teloxide::RequestError> {
-    if message.chat.id != ChatId(ADMIN_CHAT_ID) {
+    let admin_chat_id = config
+        .lock()
+        .await
+        .getint("Bot", "AdminId")
+        .expect("Cannot find admin chat id")
+        .unwrap();
+    if message.chat.id != ChatId(admin_chat_id) {
         return Ok(());
     }
     let args: Vec<&str> = message.text().unwrap().split(" ").collect();
     if args.len() != 3 {
-        bot.send_message(ChatId(ADMIN_CHAT_ID), "Wrong format")
+        bot.send_message(ChatId(admin_chat_id), "Wrong format")
             .await?;
         return Ok(());
     }
@@ -84,7 +91,7 @@ pub async fn admin_handle(
         }
         AdminCommands::Remove => {
             if let Some(peer) = mongo.find_by_id(user_id.0).await {
-                wireguard::remove_peer(&peer).await;
+                let _ = wireguard::remove_peer(&peer).await;
                 if mongo.delete(&peer).await.is_ok() {
                     bot.send_message(
                         chats.lock().await[&user_id],
@@ -93,7 +100,7 @@ pub async fn admin_handle(
                     .await?;
                 }
             } else {
-                bot.send_message(ChatId(ADMIN_CHAT_ID), "Cannot find peer")
+                bot.send_message(ChatId(admin_chat_id), "Cannot find peer")
                     .await?;
             }
         }
@@ -107,9 +114,16 @@ pub async fn user_handle(
     mongo: Mongo,
     cmd: UserCommands,
     chats: Arc<Mutex<HashMap<UserId, ChatId>>>,
+    config: Arc<Mutex<Ini>>,
 ) -> Result<(), teloxide::RequestError> {
     let username = message.chat.username().unwrap_or("None").to_string();
     let user_id = message.from().unwrap().id;
+    let admin_chat_id = config
+        .lock()
+        .await
+        .getint("Bot", "AdminId")
+        .expect("Cannot find admin chat id")
+        .unwrap();
     match cmd {
         UserCommands::Register => {
             if mongo
@@ -123,13 +137,31 @@ pub async fn user_handle(
                 let chat_id = message.chat.id;
                 let msg = format!("@{} {}", username, user_id);
                 chats.lock().await.insert(user_id, chat_id);
-                bot.send_message(ChatId(ADMIN_CHAT_ID), msg).await?;
+                bot.send_message(ChatId(admin_chat_id), msg).await?;
                 bot.send_message(message.chat.id, "Request is sent to admin")
                     .await?;
             }
         }
         UserCommands::GetConfig => {
             if let Some(mut peer) = mongo.find_by_id(user_id.0).await {
+                // remove old peer, if err => send message to user and to admin
+                if peer.public_key.is_some() {
+                    match wireguard::remove_peer(&peer).await {
+                        Err(why) => {
+                            send_and_log_msg(
+                                &bot,
+                                &message,
+                                Some(format!("Cannot remove existing peer {}", peer.username)),
+                                Some("Sorry cannot generate config".to_string()),
+                                Some(why),
+                                admin_chat_id,
+                            )
+                            .await;
+                            return Ok(());
+                        }
+                        Ok(_) => (),
+                    }
+                }
                 // Add peer to wireguard, if err => send message to user and to admin
                 match wireguard::add_peer(&mut peer, &mongo).await {
                     Err(why) => {
@@ -139,6 +171,7 @@ pub async fn user_handle(
                             Some(format!("Cannot add peer {}", peer.username)),
                             Some("Sorry cannot generate config".to_string()),
                             Some(why),
+                            admin_chat_id,
                         )
                         .await;
                         return Ok(());
@@ -148,13 +181,14 @@ pub async fn user_handle(
                 // Update peer in db, if err => send message to user and to admin
                 match mongo.update(&peer).await {
                     Err(why) => {
-                        wireguard::remove_peer(&peer).await; // Something like dummy rollback
+                        let _ = wireguard::remove_peer(&peer).await; // Something like dummy rollback
                         send_and_log_msg(
                             &bot,
                             &message,
                             Some(format!("Cannot update peer {}", peer.username)),
                             Some("Sorry cannot generate config".to_string()),
                             Some(why),
+                            admin_chat_id,
                         )
                         .await;
                         return Ok(());
@@ -162,7 +196,7 @@ pub async fn user_handle(
                     Ok(_) => (),
                 }
                 // If everything is ok => generate and send config
-                if let Ok(config_path) = wireguard::gen_conf(&peer) {
+                if let Ok(config_path) = wireguard::gen_conf(&peer, config).await {
                     match bot
                         .send_document(message.chat.id, InputFile::file(config_path))
                         .await
@@ -174,9 +208,10 @@ pub async fn user_handle(
                                 Some(format!("Cannot send config to {}", peer.username)),
                                 Some("Sorry cannot send config".to_string()),
                                 Some(SimpleError::from(why)),
+                                admin_chat_id,
                             )
                             .await;
-                            wireguard::remove_peer(&peer).await; // Something like dummy rollback
+                            let _ = wireguard::remove_peer(&peer).await; // Something like dummy rollback
                             return Ok(());
                         }
                         Ok(_) => (),
@@ -193,6 +228,7 @@ pub async fn user_handle(
                                 Some(format!("Cannot send success message to {}", peer.username)),
                                 None,
                                 Some(SimpleError::from(why)),
+                                admin_chat_id,
                             )
                             .await
                         }
@@ -205,6 +241,7 @@ pub async fn user_handle(
                         Some(format!("Cannot create config for {}", peer.username)),
                         Some("Sorry cannot generate config".to_string()),
                         None,
+                        admin_chat_id,
                     )
                     .await;
                 }
@@ -235,6 +272,7 @@ async fn send_and_log_msg(
     admin_msg: Option<String>,
     user_msg: Option<String>,
     err: Option<SimpleError>,
+    admin_chat_id: i64,
 ) {
     if let Some(msg) = user_msg {
         match bot.send_message(message.chat.id, msg).await {
@@ -243,7 +281,7 @@ async fn send_and_log_msg(
         }
     }
     if let Some(msg) = admin_msg {
-        match bot.send_message(ChatId(ADMIN_CHAT_ID), msg).await {
+        match bot.send_message(ChatId(admin_chat_id), msg).await {
             Err(why) => log::error!("{}", why),
             Ok(_) => (),
         }

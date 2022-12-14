@@ -1,5 +1,7 @@
 use crate::bot::{admin_handle, user_handle, AdminCommands, UserCommands};
 use crate::mongo::Mongo;
+use clap::{arg, command, Parser};
+use configparser::ini::Ini;
 use std::collections::HashMap;
 use std::sync::Arc;
 use teloxide::{prelude::*, utils::command::BotCommands};
@@ -12,7 +14,30 @@ mod wireguard;
 async fn main() {
     pretty_env_logger::init();
     log::info!("Starting bot...");
-    let mongo = Mongo::new().await;
+    let args = Args::parse();
+    let content = std::fs::read_to_string(&args.config).expect("Cannot read config file");
+    let config: Arc<Mutex<Ini>> = Arc::new(Mutex::new(Ini::new()));
+    config
+        .lock()
+        .await
+        .read(content)
+        .expect("Cannot parse config");
+    let url = &config
+        .lock()
+        .await
+        .get("Mongo", "URL")
+        .expect("Cannot find db url");
+    let name = config
+        .lock()
+        .await
+        .get("Mongo", "Name")
+        .expect("Cannot find db name");
+    let table = config
+        .lock()
+        .await
+        .get("Mongo", "Table")
+        .expect("Cannot find db table");
+    let mongo = Mongo::new(url, name, table).await;
     let bot = Bot::from_env();
     let chats: Arc<Mutex<HashMap<UserId, ChatId>>> = Arc::new(Mutex::new(HashMap::new()));
     bot.set_my_commands(UserCommands::bot_commands())
@@ -30,8 +55,15 @@ async fn main() {
                 .endpoint(admin_handle),
         );
     Dispatcher::builder(bot, handler)
-        .dependencies(dptree::deps![mongo, chats])
+        .dependencies(dptree::deps![mongo, chats, config])
         .build()
         .dispatch()
         .await;
+}
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(short, long)]
+    config: String,
 }
