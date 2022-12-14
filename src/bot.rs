@@ -145,20 +145,22 @@ pub async fn user_handle(
         UserCommands::GetConfig => {
             if let Some(mut peer) = mongo.find_by_id(user_id.0).await {
                 // remove old peer, if err => send message to user and to admin
-                match wireguard::remove_peer(&peer).await {
-                    Err(why) => {
-                        send_and_log_msg(
-                            &bot,
-                            &message,
-                            Some(format!("Cannot remove existing peer {}", peer.username)),
-                            Some("Sorry cannot generate config".to_string()),
-                            Some(why),
-                            admin_chat_id,
-                        )
-                        .await;
-                        return Ok(());
+                if peer.public_key.is_some() {
+                    match wireguard::remove_peer(&peer).await {
+                        Err(why) => {
+                            send_and_log_msg(
+                                &bot,
+                                &message,
+                                Some(format!("Cannot remove existing peer {}", peer.username)),
+                                Some("Sorry cannot generate config".to_string()),
+                                Some(why),
+                                admin_chat_id,
+                            )
+                            .await;
+                            return Ok(());
+                        }
+                        Ok(_) => (),
                     }
-                    Ok(_) => (),
                 }
                 // Add peer to wireguard, if err => send message to user and to admin
                 match wireguard::add_peer(&mut peer, &mongo).await {
