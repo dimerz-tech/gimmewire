@@ -22,24 +22,22 @@ async fn main() {
         .await
         .read(content)
         .expect("Cannot parse config");
-    let mongo = Mongo::new(
-        &config
-            .lock()
-            .await
-            .get("Mongo", "URL")
-            .expect("Cannot find db url"),
-        config
-            .lock()
-            .await
-            .get("Mongo", "Name")
-            .expect("Cannot find db name"),
-        config
-            .lock()
-            .await
-            .get("Mongo", "Table")
-            .expect("Cannot find db table"),
-    )
-    .await;
+    let url = &config
+        .lock()
+        .await
+        .get("Mongo", "URL")
+        .expect("Cannot find db url");
+    let name = config
+        .lock()
+        .await
+        .get("Mongo", "Name")
+        .expect("Cannot find db name");
+    let table = config
+        .lock()
+        .await
+        .get("Mongo", "Table")
+        .expect("Cannot find db table");
+    let mongo = Mongo::new(url, name, table).await;
     let bot = Bot::from_env();
     let chats: Arc<Mutex<HashMap<UserId, ChatId>>> = Arc::new(Mutex::new(HashMap::new()));
     bot.set_my_commands(UserCommands::bot_commands())

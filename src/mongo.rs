@@ -12,11 +12,9 @@ pub struct Mongo {
 impl Mongo {
     pub async fn new(url: &str, name: String, table: String) -> Self {
         Mongo {
-            name: name, 
+            name: name,
             table: table,
-            client: Client::with_uri_str(url)
-                .await
-                .unwrap(),
+            client: Client::with_uri_str(url).await.unwrap(),
         }
     }
 
@@ -121,8 +119,12 @@ impl Mongo {
 #[tokio::test]
 async fn test_db() {
     use std::net::Ipv4Addr;
-
-    let mongo = Mongo::new("mongodb://localhost:27017", "gimmewire".to_string(), "peers".to_string()).await;
+    let mongo = Mongo::new(
+        "mongodb://localhost:27017",
+        "gimmewire".to_string(),
+        "peers".to_string(),
+    )
+    .await;
     let peer1 = Peer {
         user_id: 256,
         username: "User1".to_string(),

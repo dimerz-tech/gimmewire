@@ -3,12 +3,12 @@ use configparser::ini::Ini;
 use mongodb::bson::{doc, DateTime};
 use serde::{Deserialize, Serialize};
 use simple_error::{SimpleError, SimpleResult};
-use tokio::sync::Mutex;
-use std::collections::{HashSet};
+use std::collections::HashSet;
 use std::io::Write;
 use std::net::Ipv4Addr;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Peer {
     pub user_id: u64,
@@ -44,7 +44,7 @@ pub async fn add_peer(peer: &mut Peer, mongo: &Mongo) -> SimpleResult<()> {
     }
 }
 
-pub async fn remove_peer(peer: &Peer) {
+pub async fn remove_peer(peer: &Peer) -> SimpleResult<()> {
     let mut wg = match Command::new("/usr/bin/wg")
         .args([
             "set",
@@ -55,13 +55,16 @@ pub async fn remove_peer(peer: &Peer) {
         ])
         .spawn()
     {
-        Err(why) => panic!("Cannot run wg: {}", why),
+        Err(why) => return Err(SimpleError::from(why)),
         Ok(wg) => wg,
     };
-    wg.wait().expect("Could not remove peer from wg");
+    match wg.wait() {
+        Err(why) => Err(SimpleError::from(why)),
+        Ok(_) => Ok(()),
+    }
 }
 
-pub fn gen_conf(peer: &Peer, conf: Arc<Mutex<Ini>>) -> SimpleResult<String> {
+pub async fn gen_conf(peer: &Peer, conf: Arc<Mutex<Ini>>) -> SimpleResult<String> {
     let mut config = Ini::new_cs();
     config.set(
         "Interface",
@@ -71,18 +74,47 @@ pub fn gen_conf(peer: &Peer, conf: Arc<Mutex<Ini>>) -> SimpleResult<String> {
     config.set(
         "Interface",
         "Address",
-        Some(format!("{}/{}", peer.ip.unwrap().to_string(), conf.blocking_lock().get("Peer", "Subnet").unwrap_or(16.to_string()))),
+        Some(format!(
+            "{}/{}",
+            peer.ip.unwrap().to_string(),
+            conf.lock()
+                .await
+                .get("Peer", "Subnet")
+                .unwrap_or(16.to_string())
+        )),
     );
-    config.set("Interface", "DNS", Some(conf.blocking_lock().get("Peer", "DNS").unwrap_or("8.8.8.8".to_string())));
+    config.set(
+        "Interface",
+        "DNS",
+        Some(
+            conf.lock()
+                .await
+                .get("Peer", "DNS")
+                .unwrap_or("8.8.8.8".to_string()),
+        ),
+    );
+    config.set("Peer", "PublicKey", conf.lock().await.get("Peer", "Key"));
     config.set(
         "Peer",
-        "PublicKey",
-        config.get("Peer", "Key"),
+        "Endpoint",
+        conf.lock().await.get("Peer", "Endpoint"),
     );
-    config.set("Peer", "Endpoint", conf.blocking_lock().get("Peer", "Endpoint"));
     config.set("Peer", "AllowedIPs", Some("0.0.0.0/0".to_string()));
-    config.set("Peer", "PersistentKeepalive", Some(conf.blocking_lock().get("Peer", "KeepAlive").unwrap_or(25.to_string())));
-    let config_path = format!("{}/{}.conf", dirs::home_dir().unwrap().to_string_lossy(), peer.username);
+    config.set(
+        "Peer",
+        "PersistentKeepalive",
+        Some(
+            conf.lock()
+                .await
+                .get("Peer", "KeepAlive")
+                .unwrap_or(25.to_string()),
+        ),
+    );
+    let config_path = format!(
+        "{}/{}.conf",
+        dirs::home_dir().unwrap().to_string_lossy(),
+        peer.username
+    );
     match config.write(&config_path) {
         Err(why) => {
             log::error!("Cannot save a client config: {}", why);
@@ -174,4 +206,18 @@ fn generate_keys() {
     let (private, public) = gen_keys();
     println!("{}", private.len());
     assert!(private.len() == 44 && public.len() == 44);
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn read_conf() {
+    let content = std::fs::read_to_string("gimmewire.conf").expect("Cannot read config file");
+    let config: Arc<Mutex<Ini>> = Arc::new(Mutex::new(Ini::new()));
+    config
+        .lock()
+        .await
+        .read(content)
+        .expect("Cannot parse config");
+    let name = config.lock().await.get("Mongo", "Name").unwrap();
+    assert!(name == "gimmewire");
 }
