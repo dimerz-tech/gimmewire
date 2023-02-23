@@ -33,6 +33,8 @@ pub enum AdminCommands {
     Reject,
     #[command(description = "Remove peer")]
     Remove,
+    #[command(description = "Add peer with any username")]
+    Add,
 }
 pub async fn admin_handle(
     bot: Bot,
@@ -102,6 +104,51 @@ pub async fn admin_handle(
             } else {
                 bot.send_message(ChatId(admin_chat_id), "Cannot find peer")
                     .await?;
+            }
+        }
+        AdminCommands::Add => {
+            if mongo
+                .add(&Peer {
+                    user_id: user_id.0,
+                    username: username,
+                    private_key: None,
+                    public_key: None,
+                    ip: None,
+                    date: DateTime::now(),
+                })
+                .await
+                .is_ok()
+            {
+                if let Some(mut peer) = mongo.find_by_id(user_id.0).await {
+                    if wireguard::add_peer(&mut peer, &mongo).await.is_ok() {
+                        if mongo.update(&peer).await.is_ok() {
+                            if let Ok(config_path) = wireguard::gen_conf(&peer, config).await {
+                                match bot
+                                    .send_document(message.chat.id, InputFile::file(config_path))
+                                    .await
+                                {
+                                    Err(why) => {
+                                        send_and_log_msg(
+                                            &bot,
+                                            &message,
+                                            Some(format!(
+                                                "Cannot send config to {}",
+                                                peer.username
+                                            )),
+                                            Some("Sorry cannot send config".to_string()),
+                                            Some(SimpleError::from(why)),
+                                            admin_chat_id,
+                                        )
+                                        .await;
+                                        let _ = wireguard::remove_peer(&peer).await; // Something like dummy rollback
+                                        return Ok(());
+                                    }
+                                    Ok(_) => (),
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
